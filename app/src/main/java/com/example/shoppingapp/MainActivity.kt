@@ -22,7 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
-
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
 
@@ -56,6 +57,8 @@ fun AddProductScreen(db: ShoppingDatabase) {
     var productList by remember { mutableStateOf(listOf<Product>()) }
     var refresh by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
 
     // Automatyczne załadowanie przy starcie i po dodaniu
     LaunchedEffect(refresh) {
@@ -107,6 +110,26 @@ fun AddProductScreen(db: ShoppingDatabase) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Dodaj")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                val intent = Intent(context, QRCodeActivity::class.java)
+                context.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Pokaż QR z produktami")
+        }
+        Button(
+            onClick = {
+                val intent = Intent(context, QRCodeScannerActivity::class.java)
+                context.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Zeskanuj kod QR i dodaj produkty")
         }
 
         Divider()
