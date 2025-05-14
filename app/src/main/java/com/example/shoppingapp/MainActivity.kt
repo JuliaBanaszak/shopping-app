@@ -3,45 +3,119 @@ package com.example.shoppingapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import com.example.shoppingapp.ui.theme.ShoppingAppTheme
+import androidx.room.Room
+import com.example.shoppingapp.data.Product
+import com.example.shoppingapp.data.ShoppingDatabase
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var db: ShoppingDatabase
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+
+        db = Room.databaseBuilder(
+            applicationContext,
+            ShoppingDatabase::class.java,
+            "shopping_database"
+        ).build()
+
         setContent {
             ShoppingAppTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                AddProductScreen(
+                    db = ShoppingDatabase.getDatabase(applicationContext)
+                )
             }
         }
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
 
-@Preview(showBackground = true)
+
 @Composable
-fun GreetingPreview() {
-    ShoppingAppTheme {
-        Greeting("Android")
+fun AddProductScreen(db: ShoppingDatabase) {
+    var name by remember { mutableStateOf("") }
+    var unit by remember { mutableStateOf("") }
+    var productList by remember { mutableStateOf(listOf<Product>()) }
+    var refresh by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Automatyczne załadowanie przy starcie i po dodaniu
+    LaunchedEffect(refresh) {
+        val products = withContext(Dispatchers.IO) {
+            db.shoppingDao().getAllProducts()
+        }
+        productList = products
+    }
+
+    Column(
+        modifier = Modifier
+            .padding(16.dp)
+            .fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Dodaj produkt", style = MaterialTheme.typography.headlineSmall)
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            label = { Text("Nazwa produktu") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = unit,
+            onValueChange = { unit = it },
+            label = { Text("Jednostka (np. g, ml, szt)") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+
+
+        Button(
+            onClick = {
+                if (name.isNotBlank() && unit.isNotBlank()) {
+                    val product = Product(name = name.trim(), unit = unit.trim())
+                    name = ""
+                    unit = ""
+
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            db.shoppingDao().insertProduct(product)
+                        }
+                        refresh = !refresh
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Dodaj")
+        }
+
+        Divider()
+
+        Text("Lista produktów:", style = MaterialTheme.typography.titleMedium)
+        LazyColumn {
+            items(productList) { product ->
+                Text("• ${product.name} (${product.unit})")
+            }
+        }
     }
 }
