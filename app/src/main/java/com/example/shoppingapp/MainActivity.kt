@@ -24,14 +24,33 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var db: ShoppingDatabase
-
+    override fun onResume() {
+        super.onResume()
+        setContent {
+            ShoppingAppTheme {
+                AddProductScreen(
+                    db = ShoppingDatabase.getDatabase(applicationContext)
+                )
+            }
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         db = Room.databaseBuilder(
             applicationContext,
             ShoppingDatabase::class.java,
@@ -50,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
 
 
+
 @Composable
 fun AddProductScreen(db: ShoppingDatabase) {
     var name by remember { mutableStateOf("") }
@@ -58,6 +78,8 @@ fun AddProductScreen(db: ShoppingDatabase) {
     var refresh by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
 
 
     // Automatyczne załadowanie przy starcie i po dodaniu
@@ -67,7 +89,19 @@ fun AddProductScreen(db: ShoppingDatabase) {
         }
         productList = products
     }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refresh = !refresh // To wymusi ponowne pobranie danych z bazy
+            }
+        }
 
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     Column(
         modifier = Modifier
             .padding(16.dp)

@@ -37,31 +37,47 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import android.content.pm.PackageManager
 import androidx.camera.core.ExperimentalGetImage
 import androidx.compose.ui.viewinterop.AndroidView
-
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import android.widget.Toast
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 class QRCodeActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val db = ShoppingDatabase.getDatabase(applicationContext)
+
         setContent {
             ShoppingAppTheme {
-                QRCodeScreen()
+                QRCodeScreenWithDB(db)
             }
         }
     }
 }
 
-
 @Composable
-fun QRCodeScreen() {
-    val context = LocalContext.current
-    val gson = remember { Gson() }
-    val products = remember {
-        runBlocking {
-            withContext(Dispatchers.IO) {
-                ShoppingDatabase.getDatabase(context).shoppingDao().getAllProducts()
-            }
+fun QRCodeScreenWithDB(db: ShoppingDatabase) {
+    var productList by remember { mutableStateOf<List<Product>>(emptyList()) }
+
+    // Pobieranie danych z bazy
+    LaunchedEffect(Unit) {
+        productList = withContext(Dispatchers.IO) {
+            db.shoppingDao().getAllProducts()
         }
     }
+
+    QRCodeScreen(products = productList)
+}
+
+@Composable
+fun QRCodeScreen(products: List<Product>) {
+    val gson = remember { Gson() }
     val json = remember(products) { gson.toJson(products) }
     val qrBitmap = remember(json) { generateQRCode(json) }
 
@@ -97,7 +113,6 @@ fun generateQRCode(text: String, size: Int = 512): Bitmap? {
         null
     }
 }
-
 class QRCodeScannerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,6 +130,7 @@ class QRCodeScannerActivity : ComponentActivity() {
 fun QRScannerScreen() {
     val context = LocalContext.current
     val db = remember { ShoppingDatabase.getDatabase(context) }
+    val scope = rememberCoroutineScope()
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -156,17 +172,30 @@ fun QRScannerScreen() {
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
 
-                        val barcodeScanner = BarcodeScanning.getClient()
+                        val options = BarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                            .build()
+
+                        val barcodeScanner = BarcodeScanning.getClient(options)
 
                         val imageAnalyzer = ImageAnalysis.Builder()
                             .build()
                             .also {
                                 it.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                                    processImageProxy(imageProxy, barcodeScanner) { result ->
+                                    processImageProxy(imageProxy, barcodeScanner, context) { result ->
                                         try {
                                             val products = Gson().fromJson(result, Array<Product>::class.java)
-                                            products.forEach { product ->
-                                                db.shoppingDao().insertProduct(product)
+                                            scope.launch {
+                                                withContext(Dispatchers.IO) {
+                                                    products.forEach { product ->
+                                                        try {
+                                                            val id = db.shoppingDao().insertProduct(product)
+                                                            Log.d("QR_DB", "Dodano produkt: ${product.name}, ID: $id")
+                                                        } catch (e: Exception) {
+                                                            Log.e("QR_DB", "Błąd zapisu produktu: ${product.name}", e)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         } catch (e: Exception) {
                                             Log.e("QR SCAN", "Niepoprawny format danych", e)
@@ -197,6 +226,7 @@ fun QRScannerScreen() {
 fun processImageProxy(
     imageProxy: ImageProxy,
     scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
+    context: Context,
     onResult: (String) -> Unit
 ) {
     val mediaImage = imageProxy.image
@@ -206,6 +236,8 @@ fun processImageProxy(
             .addOnSuccessListener { barcodes ->
                 for (barcode in barcodes) {
                     barcode.rawValue?.let { result ->
+                        Log.d("QR SCAN", "Zeskanowano: $result")
+                        Toast.makeText(context, "Zeskanowano:\n$result", Toast.LENGTH_LONG).show()
                         onResult(result)
                     }
                 }
