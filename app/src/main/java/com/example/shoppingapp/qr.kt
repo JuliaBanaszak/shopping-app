@@ -44,21 +44,24 @@ class QRCodeActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             ShoppingAppTheme {
-                QRCodeScreen(
-                    products = listOf(
-                        Product(name = "Mleko", unit = "ml"),
-                        Product(name = "Chleb", unit = "szt"),
-                        Product(name = "Masło", unit = "g")
-                    )
-                )
+                QRCodeScreen()
             }
         }
     }
 }
 
+
 @Composable
-fun QRCodeScreen(products: List<Product>) {
+fun QRCodeScreen() {
+    val context = LocalContext.current
     val gson = remember { Gson() }
+    val products = remember {
+        runBlocking {
+            withContext(Dispatchers.IO) {
+                ShoppingDatabase.getDatabase(context).shoppingDao().getAllProducts()
+            }
+        }
+    }
     val json = remember(products) { gson.toJson(products) }
     val qrBitmap = remember(json) { generateQRCode(json) }
 
@@ -94,6 +97,7 @@ fun generateQRCode(text: String, size: Int = 512): Bitmap? {
         null
     }
 }
+
 class QRCodeScannerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
