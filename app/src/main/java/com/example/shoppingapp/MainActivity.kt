@@ -3,176 +3,178 @@ package com.example.shoppingapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import com.example.shoppingapp.ui.theme.ShoppingAppTheme
-import androidx.room.Room
-import com.example.shoppingapp.data.Product
-import com.example.shoppingapp.data.ShoppingDatabase
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import com.example.shoppingapp.data.ShoppingDatabase
+import com.example.shoppingapp.data.ShoppingList
+import com.example.shoppingapp.ui.theme.ShoppingAppTheme
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
-import android.content.Intent
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : ComponentActivity() {
-
-    private lateinit var db: ShoppingDatabase
-    override fun onResume() {
-        super.onResume()
-        setContent {
-            ShoppingAppTheme {
-                AddProductScreen(
-                    db = ShoppingDatabase.getDatabase(applicationContext)
-                )
-            }
-        }
-    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        db = Room.databaseBuilder(
-            applicationContext,
-            ShoppingDatabase::class.java,
-            "shopping_database"
-        ).build()
 
         setContent {
             ShoppingAppTheme {
-                AddProductScreen(
-                    db = ShoppingDatabase.getDatabase(applicationContext)
-                )
+                ShoppingListScreen(db = ShoppingDatabase.getDatabase(applicationContext))
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ShoppingListScreen(db: ShoppingDatabase) {
+    val dao = db.shoppingDao()
+    var lists by remember { mutableStateOf(listOf<ShoppingList>()) }
+    var showDialog by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
+    val currentDate = Calendar.getInstance().time
+    val sdf = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
+    val dateString = sdf.format(currentDate)
 
+    LaunchedEffect(Unit) {
+        scope.launch {
+            lists = withContext(Dispatchers.IO) {
+                dao.getAllShoppingLists()
+            }
+        }
+    }
+
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add List")
+            }
+        }
+    ) { paddingValues ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(lists) { list ->
+                ShoppingListCard(list = list) {
+                    // Navigation to detail screen would go here
+                }
+            }
+        }
+
+        if (showDialog) {
+            AddListDialog(
+                onDismiss = { showDialog = false },
+                onConfirm = { title, description, notes ->
+                    scope.launch(Dispatchers.IO) {
+                        dao.insertShoppingList(
+                            ShoppingList(
+                                title = title,
+                                description = description,
+                                notes = notes,
+                                timesUsed = 0,
+                                dateCreated = dateString,
+                            )
+                        )
+                        lists = dao.getAllShoppingLists()
+                    }
+                    showDialog = false
+                }
+            )
+        }
+    }
+}
 
 @Composable
-fun AddProductScreen(db: ShoppingDatabase) {
-    var name by remember { mutableStateOf("") }
-    var unit by remember { mutableStateOf("") }
-    var productList by remember { mutableStateOf(listOf<Product>()) }
-    var refresh by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-
-
-    // Automatyczne załadowanie przy starcie i po dodaniu
-    LaunchedEffect(refresh) {
-        val products = withContext(Dispatchers.IO) {
-            db.shoppingDao().getAllProducts()
-        }
-        productList = products
-    }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                refresh = !refresh // To wymusi ponowne pobranie danych z bazy
-            }
-        }
-
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-    Column(
+fun ShoppingListCard(list: ShoppingList, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
         modifier = Modifier
-            .padding(16.dp)
-            .fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .fillMaxWidth()
+            .aspectRatio(1f)
     ) {
-        Text("Dodaj produkt", style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Nazwa produktu") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        OutlinedTextField(
-            value = unit,
-            onValueChange = { unit = it },
-            label = { Text("Jednostka (np. g, ml, szt)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-
-
-        Button(
-            onClick = {
-                if (name.isNotBlank() && unit.isNotBlank()) {
-                    val product = Product(name = name.trim(), unit = unit.trim())
-                    name = ""
-                    unit = ""
-
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            db.shoppingDao().insertProduct(product)
-                        }
-                        refresh = !refresh
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Dodaj")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            onClick = {
-                val intent = Intent(context, QRCodeActivity::class.java)
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Pokaż QR z produktami")
-        }
-        Button(
-            onClick = {
-                val intent = Intent(context, QRCodeScannerActivity::class.java)
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Zeskanuj kod QR i dodaj produkty")
-        }
-
-        Divider()
-
-        Text("Lista produktów:", style = MaterialTheme.typography.titleMedium)
-        LazyColumn {
-            items(productList) { product ->
-                Text("• ${product.name} (${product.unit})")
-            }
+            Text(
+                text = list.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = "Created: ${list.dateCreated}",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
+
+@Composable
+fun AddListDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Shopping List") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onConfirm(title, description, notes)
+            }) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun ShoppingList(){}

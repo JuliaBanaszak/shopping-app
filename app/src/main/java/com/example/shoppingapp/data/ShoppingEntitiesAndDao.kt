@@ -16,7 +16,19 @@ data class Product(
 data class ShoppingList(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val title: String,
-    val dateCreated: Long = System.currentTimeMillis()
+    val dateCreated: String,
+    val description: String,
+    val notes: String,
+    val timesUsed: Int
+)
+
+data class ShoppingListWithItems(
+    @Embedded val shoppingList: ShoppingList,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "listId"
+    )
+    val items: List<ShoppingListItem>
 )
 
 @Entity(
@@ -27,6 +39,7 @@ data class ShoppingList(
     ],
     indices = [Index("listId"), Index("productId")]
 )
+
 data class ShoppingListItem(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val listId: Int,
@@ -77,11 +90,19 @@ interface ShoppingDao {
     @Transaction
     @Query("SELECT * FROM recipe_ingredients WHERE recipeId = :recipeId")
     fun getIngredientsForRecipe(recipeId: Int): List<RecipeIngredient>
+
+    @Transaction
+    @Query("SELECT * FROM shopping_lists")
+    fun getShoppingListsWithItems(): List<ShoppingListWithItems>
+
+    @Transaction
+    @Query("SELECT * FROM shopping_lists WHERE id = :listId")
+    fun getShoppingListWithItems(listId: Int): ShoppingListWithItems
 }
 
 @Database(
     entities = [Product::class, ShoppingList::class, ShoppingListItem::class, Recipe::class, RecipeIngredient::class],
-    version = 1
+    version = 2
 )
 
 abstract class ShoppingDatabase : RoomDatabase() {
@@ -102,12 +123,12 @@ abstract class ShoppingDatabase : RoomDatabase() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
                             Executors.newSingleThreadExecutor().execute {
-                                val dao = INSTANCE?.shoppingDao()
-                                dao?.insertProduct(Product(name = "Mleko", unit = "ml"))
-                                dao?.insertProduct(Product(name = "Chleb", unit = "szt"))
-                                dao?.insertProduct(Product(name = "Masło", unit = "g"))
-                                dao?.insertProduct(Product(name = "Jajka", unit = "szt"))
-                                dao?.insertProduct(Product(name = "Mąka", unit = "g"))
+                                val dao = getDatabase(context).shoppingDao()
+                                dao.insertProduct(Product(name = "Mleko", unit = "ml"))
+                                dao.insertProduct(Product(name = "Chleb", unit = "szt"))
+                                dao.insertProduct(Product(name = "Masło", unit = "g"))
+                                dao.insertProduct(Product(name = "Jajka", unit = "szt"))
+                                dao.insertProduct(Product(name = "Mąka", unit = "g"))
                             }
                         }
                     })
