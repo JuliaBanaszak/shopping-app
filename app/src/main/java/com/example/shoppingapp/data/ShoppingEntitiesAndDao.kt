@@ -97,12 +97,12 @@ interface ShoppingDao {
 
     @Transaction
     @Query("SELECT * FROM shopping_lists WHERE id = :listId")
-    fun getShoppingListWithItems(listId: Int): ShoppingListWithItems
+    fun getShoppingListWithItems(listId: Int): ShoppingListWithItems? // Changed to nullable
 }
 
 @Database(
     entities = [Product::class, ShoppingList::class, ShoppingListItem::class, Recipe::class, RecipeIngredient::class],
-    version = 2
+    version = 2 // Keep version or increment if schema changed and migrations aren't handled (not changed here)
 )
 
 abstract class ShoppingDatabase : RoomDatabase() {
@@ -123,15 +123,21 @@ abstract class ShoppingDatabase : RoomDatabase() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
                             Executors.newSingleThreadExecutor().execute {
-                                val dao = getDatabase(context).shoppingDao()
+                                val dao = getDatabase(context).shoppingDao() // Careful with re-entrant getDatabase
+                                // Pre-populate data
                                 dao.insertProduct(Product(name = "Mleko", unit = "ml"))
                                 dao.insertProduct(Product(name = "Chleb", unit = "szt"))
                                 dao.insertProduct(Product(name = "Masło", unit = "g"))
                                 dao.insertProduct(Product(name = "Jajka", unit = "szt"))
                                 dao.insertProduct(Product(name = "Mąka", unit = "g"))
+                                dao.insertProduct(Product(name = "Cukier", unit = "kg"))
+                                dao.insertProduct(Product(name = "Sól", unit = "g"))
+                                dao.insertProduct(Product(name = "Ryż", unit = "kg"))
+                                dao.insertProduct(Product(name = "Makaron", unit = "g"))
                             }
                         }
                     })
+                    // .fallbackToDestructiveMigration() // Add if schema changes and you don't want to write migrations
                     .build()
                 INSTANCE = instance
                 instance
