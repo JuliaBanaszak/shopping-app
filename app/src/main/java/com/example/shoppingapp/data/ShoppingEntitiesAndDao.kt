@@ -16,7 +16,19 @@ data class Product(
 data class ShoppingList(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val title: String,
-    val dateCreated: Long = System.currentTimeMillis()
+    val dateCreated: String,
+    val description: String,
+    val notes: String,
+    val timesUsed: Int
+)
+
+data class ShoppingListWithItems(
+    @Embedded val shoppingList: ShoppingList,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "listId"
+    )
+    val items: List<ShoppingListItem>
 )
 
 @Entity(
@@ -27,6 +39,7 @@ data class ShoppingList(
     ],
     indices = [Index("listId"), Index("productId")]
 )
+
 data class ShoppingListItem(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val listId: Int,
@@ -77,11 +90,19 @@ interface ShoppingDao {
     @Transaction
     @Query("SELECT * FROM recipe_ingredients WHERE recipeId = :recipeId")
     fun getIngredientsForRecipe(recipeId: Int): List<RecipeIngredient>
+
+    @Transaction
+    @Query("SELECT * FROM shopping_lists")
+    fun getShoppingListsWithItems(): List<ShoppingListWithItems>
+
+    @Transaction
+    @Query("SELECT * FROM shopping_lists WHERE id = :listId")
+    fun getShoppingListWithItems(listId: Int): ShoppingListWithItems? // Changed to nullable
 }
 
 @Database(
     entities = [Product::class, ShoppingList::class, ShoppingListItem::class, Recipe::class, RecipeIngredient::class],
-    version = 1
+    version = 2 // Keep version or increment if schema changed and migrations aren't handled (not changed here)
 )
 
 abstract class ShoppingDatabase : RoomDatabase() {
@@ -102,15 +123,21 @@ abstract class ShoppingDatabase : RoomDatabase() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
                             Executors.newSingleThreadExecutor().execute {
-                                val dao = INSTANCE?.shoppingDao()
-                                dao?.insertProduct(Product(name = "Mleko", unit = "ml"))
-                                dao?.insertProduct(Product(name = "Chleb", unit = "szt"))
-                                dao?.insertProduct(Product(name = "Masło", unit = "g"))
-                                dao?.insertProduct(Product(name = "Jajka", unit = "szt"))
-                                dao?.insertProduct(Product(name = "Mąka", unit = "g"))
+                                val dao = getDatabase(context).shoppingDao() // Careful with re-entrant getDatabase
+                                // Pre-populate data
+                                dao.insertProduct(Product(name = "Mleko", unit = "ml"))
+                                dao.insertProduct(Product(name = "Chleb", unit = "szt"))
+                                dao.insertProduct(Product(name = "Masło", unit = "g"))
+                                dao.insertProduct(Product(name = "Jajka", unit = "szt"))
+                                dao.insertProduct(Product(name = "Mąka", unit = "g"))
+                                dao.insertProduct(Product(name = "Cukier", unit = "kg"))
+                                dao.insertProduct(Product(name = "Sól", unit = "g"))
+                                dao.insertProduct(Product(name = "Ryż", unit = "kg"))
+                                dao.insertProduct(Product(name = "Makaron", unit = "g"))
                             }
                         }
                     })
+                    // .fallbackToDestructiveMigration() // Add if schema changes and you don't want to write migrations
                     .build()
                 INSTANCE = instance
                 instance

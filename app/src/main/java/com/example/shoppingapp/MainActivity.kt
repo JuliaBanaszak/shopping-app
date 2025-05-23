@@ -3,176 +3,436 @@ package com.example.shoppingapp
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import com.example.shoppingapp.ui.theme.ShoppingAppTheme
-import androidx.room.Room
-import com.example.shoppingapp.data.Product
-import com.example.shoppingapp.data.ShoppingDatabase
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.shoppingapp.data.ShoppingDatabase
+import com.example.shoppingapp.data.ShoppingList
+import com.example.shoppingapp.ui.theme.ShoppingAppTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.*
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import android.content.Intent
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.KeyboardType
+import com.example.shoppingapp.data.Product
+import com.example.shoppingapp.data.ShoppingListItem
+import com.example.shoppingapp.data.ShoppingListWithItems
+
 
 class MainActivity : ComponentActivity() {
-
-    private lateinit var db: ShoppingDatabase
-    override fun onResume() {
-        super.onResume()
-        setContent {
-            ShoppingAppTheme {
-                AddProductScreen(
-                    db = ShoppingDatabase.getDatabase(applicationContext)
-                )
-            }
-        }
-    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        db = Room.databaseBuilder(
-            applicationContext,
-            ShoppingDatabase::class.java,
-            "shopping_database"
-        ).build()
+        val db = ShoppingDatabase.getDatabase(applicationContext)
 
         setContent {
             ShoppingAppTheme {
-                AddProductScreen(
-                    db = ShoppingDatabase.getDatabase(applicationContext)
-                )
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "listScreen") {
+                    composable("listScreen") {
+                        ShoppingListScreen(db = db, navController = navController)
+                    }
+                    composable(
+                        route = "details/{listId}", // Changed route to use listId
+                        arguments = listOf(
+                            navArgument("listId") { type = NavType.IntType }
+                        )
+                    ) { backStackEntry ->
+                        ShoppingListDetails(
+                            listId = backStackEntry.arguments?.getInt("listId") ?: -1, // Get listId
+                            db = db,
+                            navController = navController
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 
-
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddProductScreen(db: ShoppingDatabase) {
-    var name by remember { mutableStateOf("") }
-    var unit by remember { mutableStateOf("") }
-    var productList by remember { mutableStateOf(listOf<Product>()) }
-    var refresh by remember { mutableStateOf(false) }
+fun ShoppingListScreen(db: ShoppingDatabase, navController: NavHostController) {
+    val dao = db.shoppingDao()
+    var lists by remember { mutableStateOf(listOf<ShoppingList>()) }
+    var showDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
 
+    val currentDate = Calendar.getInstance().time
+    val sdf = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
+    val dateString = sdf.format(currentDate)
 
-
-    // Automatyczne załadowanie przy starcie i po dodaniu
-    LaunchedEffect(refresh) {
-        val products = withContext(Dispatchers.IO) {
-            db.shoppingDao().getAllProducts()
+    LaunchedEffect(Unit) {
+        scope.launch {
+            val fetchedLists = withContext(Dispatchers.IO) {
+                dao.getAllShoppingLists()
+            }
+            lists = fetchedLists
         }
-        productList = products
     }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                refresh = !refresh // To wymusi ponowne pobranie danych z bazy
+
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("My Shopping Lists") })
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add List")
+            }
+        }
+    ) { paddingValues ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(lists) { list ->
+                ShoppingListCard(list = list) {
+                    navController.navigate("details/${list.id}")
+                }
             }
         }
 
-        lifecycleOwner.lifecycle.addObserver(observer)
-
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-    Column(
-        modifier = Modifier
-            .padding(16.dp)
-            .fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Dodaj produkt", style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Nazwa produktu") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        OutlinedTextField(
-            value = unit,
-            onValueChange = { unit = it },
-            label = { Text("Jednostka (np. g, ml, szt)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-
-
-        Button(
-            onClick = {
-                if (name.isNotBlank() && unit.isNotBlank()) {
-                    val product = Product(name = name.trim(), unit = unit.trim())
-                    name = ""
-                    unit = ""
-
+        if (showDialog) {
+            AddListDialog(
+                onDismiss = { showDialog = false },
+                onConfirm = { title, description, notes ->
                     scope.launch {
                         withContext(Dispatchers.IO) {
-                            db.shoppingDao().insertProduct(product)
+                            dao.insertShoppingList(
+                                ShoppingList(
+                                    title = title,
+                                    description = description,
+                                    notes = notes,
+                                    timesUsed = 0,
+                                    dateCreated = dateString,
+                                )
+                            )
+                            val updatedLists = dao.getAllShoppingLists()
+                            lists = updatedLists
                         }
-                        refresh = !refresh
                     }
+                    showDialog = false
                 }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Dodaj")
+            )
         }
-        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
 
-        Button(
-            onClick = {
-                val intent = Intent(context, QRCodeActivity::class.java)
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth()
+@Composable
+fun ShoppingListCard(list: ShoppingList, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Pokaż QR z produktami")
+            Text(
+                text = list.title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = "Created: ${list.dateCreated}",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
-        Button(
-            onClick = {
-                val intent = Intent(context, QRCodeScannerActivity::class.java)
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Zeskanuj kod QR i dodaj produkty")
+    }
+}
+
+@Composable
+fun AddListDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New Shopping List") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes (Optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        onConfirm(title, description, notes)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
         }
+    )
+}
 
-        Divider()
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ShoppingListDetails(
+    listId: Int,
+    db: ShoppingDatabase,
+    navController: NavHostController
+) {
+    val dao = db.shoppingDao()
+    val scope = rememberCoroutineScope()
 
-        Text("Lista produktów:", style = MaterialTheme.typography.titleMedium)
-        LazyColumn {
-            items(productList) { product ->
-                Text("• ${product.name} (${product.unit})")
+    var shoppingListWithItems by remember { mutableStateOf<ShoppingListWithItems?>(null) }
+    var allProducts by remember { mutableStateOf<List<Product>>(emptyList()) }
+    val productMap: Map<Int, Product> by remember(allProducts) {
+        derivedStateOf { allProducts.associateBy { it.id } }
+    }
+
+    var showAddItemDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(listId) {
+        if (listId == -1) {
+            navController.popBackStack()
+            return@LaunchedEffect
+        }
+        scope.launch {
+            val fetchedListWithItems = withContext(Dispatchers.IO) {
+                dao.getShoppingListWithItems(listId)
+            }
+            val fetchedProducts = withContext(Dispatchers.IO) {
+                dao.getAllProducts()
+            }
+            withContext(Dispatchers.Main) {
+                shoppingListWithItems = fetchedListWithItems
+                allProducts = fetchedProducts
             }
         }
     }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(shoppingListWithItems?.shoppingList?.title ?: "List Details") },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            if (shoppingListWithItems != null) {
+                FloatingActionButton(onClick = { showAddItemDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Item to List")
+                }
+            }
+        }
+    ) { padding ->
+        if (shoppingListWithItems == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                if (listId != -1) CircularProgressIndicator() else Text("Invalid List ID.")
+            }
+        } else {
+            val list = shoppingListWithItems!!.shoppingList
+            val items = shoppingListWithItems!!.items
+
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .padding(16.dp)
+                    .fillMaxSize(),
+            ) {
+                Text("Title: ${list.title}", style = MaterialTheme.typography.titleLarge)
+                Text("Description: ${list.description.ifEmpty { "No description" }}", style = MaterialTheme.typography.bodyMedium)
+                Text("Notes: ${list.notes.ifEmpty { "No notes" }}", style = MaterialTheme.typography.bodyMedium)
+                Text("Created on: ${list.dateCreated}", style = MaterialTheme.typography.bodySmall)
+                Text("Times Used: ${list.timesUsed}", style = MaterialTheme.typography.bodySmall)
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Items in this list:", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (items.isEmpty()) {
+                    Text("No items added yet. Click the '+' button to add items.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(items) { item ->
+                            val product = productMap[item.productId]
+                            ListItem(
+                                headlineContent = { Text(product?.name ?: "Unknown Product") },
+                                supportingContent = {
+                                    Text("Quantity: ${item.quantity} ${product?.unit ?: ""}")
+                                },
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddItemDialog && shoppingListWithItems != null) {
+        AddItemDialog(
+            products = allProducts,
+            onDismiss = { showAddItemDialog = false },
+            onConfirm = { productId, quantity ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        val newItem = ShoppingListItem(
+                            listId = listId,
+                            productId = productId,
+                            quantity = quantity
+                        )
+                        dao.insertShoppingListItem(newItem)
+                        val updatedListWithItems = dao.getShoppingListWithItems(listId)
+                        withContext(Dispatchers.Main) {
+                            shoppingListWithItems = updatedListWithItems
+                        }
+                    }
+                }
+                showAddItemDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddItemDialog(
+    products: List<Product>,
+    onDismiss: () -> Unit,
+    onConfirm: (productId: Int, quantity: Float) -> Unit
+) {
+    var selectedProduct by remember { mutableStateOf<Product?>(null) }
+    var quantityStr by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Item to List") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = !expanded }
+                ) {
+                    OutlinedTextField(
+                        modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        readOnly = true,
+                        value = selectedProduct?.name ?: "Select Product",
+                        onValueChange = {},
+                        label = { Text("Product") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false }
+                    ) {
+                        if (products.isEmpty()){
+                            DropdownMenuItem(
+                                text = { Text("No products available") },
+                                onClick = { expanded = false },
+                                enabled = false
+                            )
+                        }
+                        products.forEach { product ->
+                            DropdownMenuItem(
+                                text = { Text("${product.name} (${product.unit})") },
+                                onClick = {
+                                    selectedProduct = product
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = quantityStr,
+                    onValueChange = { quantityStr = it.filter { char -> char.isDigit() || char == '.' || char == ',' } // Allow comma as well for decimal
+                        .replace(',', '.')
+                    },
+                    label = { Text("Quantity${selectedProduct?.unit?.let { " ($it)" } ?: ""}") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    enabled = selectedProduct != null
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val quantity = quantityStr.toFloatOrNull()
+                    if (selectedProduct != null && quantity != null && quantity > 0) {
+                        onConfirm(selectedProduct!!.id, quantity)
+                    }
+                },
+                enabled = selectedProduct != null && (quantityStr.toFloatOrNull() ?: 0f) > 0f
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
