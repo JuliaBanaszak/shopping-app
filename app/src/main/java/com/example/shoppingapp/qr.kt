@@ -45,54 +45,105 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import com.example.shoppingapp.data.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import androidx.camera.core.Preview
 
 class QRCodeActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val db = ShoppingDatabase.getDatabase(applicationContext)
-
         setContent {
             ShoppingAppTheme {
-                QRCodeScreenWithDB(db)
+                QRCodeListSelectorScreen(db)
             }
         }
     }
 }
 
 @Composable
-fun QRCodeScreenWithDB(db: ShoppingDatabase) {
-    var productList by remember { mutableStateOf<List<Product>>(emptyList()) }
+fun QRCodeListSelectorScreen(db: ShoppingDatabase) {
+    var allLists by remember { mutableStateOf<List<ShoppingList>>(emptyList()) }
+    var selectedList by remember { mutableStateOf<ShoppingList?>(null) }
+    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var expanded by remember { mutableStateOf(false) }
 
-    // Pobieranie danych z bazy
     LaunchedEffect(Unit) {
-        productList = withContext(Dispatchers.IO) {
-            db.shoppingDao().getAllProducts()
+        allLists = withContext(Dispatchers.IO) {
+            db.shoppingDao().getAllShoppingLists()
         }
     }
-
-    QRCodeScreen(products = productList)
-}
-
-@Composable
-fun QRCodeScreen(products: List<Product>) {
-    val gson = remember { Gson() }
-    val json = remember(products) { gson.toJson(products) }
-    val qrBitmap = remember(json) { generateQRCode(json) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Zeskanuj ten kod, aby dodać produkty", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(16.dp))
+        Text("Wybierz listę zakupów do zakodowania")
+
+        Box {
+            Button(onClick = { expanded = true }) {
+                Text(selectedList?.title ?: "Wybierz listę")
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                allLists.forEach { list ->
+                    DropdownMenuItem(
+                        text = { Text(list.title) },
+                        onClick = {
+                            selectedList = list
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                selectedList?.let { list ->
+                    val gson = Gson()
+                    CoroutineScope(Dispatchers.Main).launch {
+                        val fullList = withContext(Dispatchers.IO) {
+                            db.shoppingDao().getShoppingListWithItems(list.id)
+                        }
+                        if (fullList == null) return@launch
+                        val products = withContext(Dispatchers.IO) {
+                            db.shoppingDao().getAllProducts()
+                        }
+                        val itemDetails = fullList.items.map { item ->
+                            val product = products.find { it.id == item.productId }
+                            mapOf(
+                                "name" to (product?.name ?: ""),
+                                "unit" to (product?.unit ?: ""),
+                                "quantity" to item.quantity
+                            )
+                        }
+                        val qrData = mapOf(
+                            "title" to list.title,
+                            "description" to list.description,
+                            "notes" to list.notes,
+                            "items" to itemDetails
+                        )
+                        val json = gson.toJson(qrData)
+                        qrBitmap = generateQRCode(json)
+                    }
+                }
+            },
+            enabled = selectedList != null
+        ) {
+            Text("Generuj QR")
+        }
+
         qrBitmap?.let {
-            Image(bitmap = it.asImageBitmap(), contentDescription = "QR Code")
-        } ?: Text("Nie udało się wygenerować kodu QR")
+            Image(bitmap = it.asImageBitmap(), contentDescription = "Kod QR")
+        }
     }
 }
 
@@ -113,10 +164,10 @@ fun generateQRCode(text: String, size: Int = 512): Bitmap? {
         null
     }
 }
+
 class QRCodeScannerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         setContent {
             ShoppingAppTheme {
                 QRScannerScreen()
@@ -125,7 +176,8 @@ class QRCodeScannerActivity : ComponentActivity() {
     }
 }
 
-@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
+@OptIn(ExperimentalGetImage::class)
 @Composable
 fun QRScannerScreen() {
     val context = LocalContext.current
@@ -152,103 +204,103 @@ fun QRScannerScreen() {
         }
     }
 
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .padding(16.dp)) {
-
-        Text("Zeskanuj kod QR z produktami", style = MaterialTheme.typography.titleMedium)
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Zeskanuj kod QR z listą zakupów", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(16.dp))
 
         if (hasCameraPermission) {
-            AndroidView(
-                factory = { ctx ->
-                    val previewView = PreviewView(ctx)
+            AndroidView(factory = { ctx ->
+                val previewView = PreviewView(ctx)
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
 
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                    cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-
-                        val preview = androidx.camera.core.Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
-
-                        val options = BarcodeScannerOptions.Builder()
-                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    val barcodeScanner = BarcodeScanning.getClient(
+                        BarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
                             .build()
+                    )
 
-                        val barcodeScanner = BarcodeScanning.getClient(options)
+                    val imageAnalyzer = ImageAnalysis.Builder().build().also {
+                        it.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
+                            val mediaImage = imageProxy.image
+                            if (mediaImage != null) {
+                                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                barcodeScanner.process(image)
+                                    .addOnSuccessListener { barcodes ->
+                                        for (barcode in barcodes) {
+                                            barcode.rawValue?.let { result ->
+                                                Log.d("QR SCAN", "Zeskanowano: $result")
+                                                Toast.makeText(context, "Zeskanowano dane!", Toast.LENGTH_SHORT).show()
+                                                scope.launch {
+                                                    try {
+                                                        val map = Gson().fromJson(result, Map::class.java)
+                                                        val title = map["title"] as? String ?: return@launch
+                                                        val description = map["description"] as? String ?: ""
+                                                        val notes = map["notes"] as? String ?: ""
+                                                        val items = map["items"] as? List<Map<String, Any>> ?: return@launch
 
-                        val imageAnalyzer = ImageAnalysis.Builder()
-                            .build()
-                            .also {
-                                it.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                                    processImageProxy(imageProxy, barcodeScanner, context) { result ->
-                                        try {
-                                            val products = Gson().fromJson(result, Array<Product>::class.java)
-                                            scope.launch {
-                                                withContext(Dispatchers.IO) {
-                                                    products.forEach { product ->
-                                                        try {
-                                                            val id = db.shoppingDao().insertProduct(product)
-                                                            Log.d("QR_DB", "Dodano produkt: ${product.name}, ID: $id")
-                                                        } catch (e: Exception) {
-                                                            Log.e("QR_DB", "Błąd zapisu produktu: ${product.name}", e)
+                                                        val newListId = withContext(Dispatchers.IO) {
+                                                            db.shoppingDao().insertShoppingList(
+                                                                ShoppingList(
+                                                                    title = title,
+                                                                    description = description,
+                                                                    notes = notes,
+                                                                    dateCreated = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date()),
+                                                                    timesUsed = 0
+                                                                )
+                                                            ).toInt()
                                                         }
+
+                                                        withContext(Dispatchers.IO) {
+                                                            items.forEach { itemMap ->
+                                                                val name = itemMap["name"] as? String ?: return@forEach
+                                                                val unit = itemMap["unit"] as? String ?: ""
+                                                                val quantity = (itemMap["quantity"] as? Double)?.toFloat() ?: 1f
+
+                                                                val productId = db.shoppingDao().getAllProducts()
+                                                                    .find { it.name == name && it.unit == unit }?.id
+                                                                    ?: db.shoppingDao().insertProduct(Product(name = name, unit = unit)).toInt()
+
+                                                                db.shoppingDao().insertShoppingListItem(
+                                                                    ShoppingListItem(
+                                                                        listId = newListId,
+                                                                        productId = productId,
+                                                                        quantity = quantity
+                                                                    )
+                                                                )
+                                                            }
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        Log.e("QR SCAN", "Błąd przetwarzania danych z QR", e)
                                                     }
                                                 }
                                             }
-                                        } catch (e: Exception) {
-                                            Log.e("QR SCAN", "Niepoprawny format danych", e)
                                         }
                                     }
-                                }
+                                    .addOnCompleteListener { imageProxy.close() }
+                            } else {
+                                imageProxy.close()
                             }
+                        }
+                    }
 
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            context as QRCodeScannerActivity,
-                            CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            imageAnalyzer
-                        )
-                    }, ContextCompat.getMainExecutor(ctx))
-
-                    previewView
-                },
-                modifier = Modifier.fillMaxSize().weight(1f)
-            )
+                    cameraProvider.unbindAll()
+                    cameraProvider.bindToLifecycle(
+                        context as QRCodeScannerActivity,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        imageAnalyzer
+                    )
+                }, ContextCompat.getMainExecutor(ctx))
+                previewView
+            }, modifier = Modifier.fillMaxSize().weight(1f))
         } else {
             Text("Brak uprawnień do kamery")
         }
     }
 }
-@androidx.camera.core.ExperimentalGetImage
-fun processImageProxy(
-    imageProxy: ImageProxy,
-    scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
-    context: Context,
-    onResult: (String) -> Unit
-) {
-    val mediaImage = imageProxy.image
-    if (mediaImage != null) {
-        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    barcode.rawValue?.let { result ->
-                        Log.d("QR SCAN", "Zeskanowano: $result")
-                        Toast.makeText(context, "Zeskanowano:\n$result", Toast.LENGTH_LONG).show()
-                        onResult(result)
-                    }
-                }
-            }
-            .addOnFailureListener {
-                Log.e("QR", "Błąd skanowania", it)
-            }
-            .addOnCompleteListener {
-                imageProxy.close()
-            }
-    } else {
-        imageProxy.close()
-    }
-}
+
