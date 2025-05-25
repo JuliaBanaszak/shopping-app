@@ -170,19 +170,21 @@ class QRCodeScannerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             ShoppingAppTheme {
-                QRScannerScreen()
+                QRScannerScreen(onScanComplete = {})
             }
         }
     }
 }
 
-@androidx.annotation.OptIn(ExperimentalGetImage::class)
+//to jest nasz kokos
 @OptIn(ExperimentalGetImage::class)
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 @Composable
-fun QRScannerScreen() {
+fun QRScannerScreen(onScanComplete: () -> Unit) {
     val context = LocalContext.current
     val db = remember { ShoppingDatabase.getDatabase(context) }
     val scope = rememberCoroutineScope()
+    var scanned by remember { mutableStateOf(false) }
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -208,7 +210,7 @@ fun QRScannerScreen() {
         Text("Zeskanuj kod QR z listą zakupów", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (hasCameraPermission) {
+        if (hasCameraPermission && !scanned) {
             AndroidView(factory = { ctx ->
                 val previewView = PreviewView(ctx)
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
@@ -220,7 +222,7 @@ fun QRScannerScreen() {
 
                     val barcodeScanner = BarcodeScanning.getClient(
                         BarcodeScannerOptions.Builder()
-                            .setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE)
+                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
                             .build()
                     )
 
@@ -231,51 +233,56 @@ fun QRScannerScreen() {
                                 val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                                 barcodeScanner.process(image)
                                     .addOnSuccessListener { barcodes ->
-                                        for (barcode in barcodes) {
-                                            barcode.rawValue?.let { result ->
-                                                Log.d("QR SCAN", "Zeskanowano: $result")
-                                                Toast.makeText(context, "Zeskanowano dane!", Toast.LENGTH_SHORT).show()
-                                                scope.launch {
-                                                    try {
-                                                        val map = Gson().fromJson(result, Map::class.java)
-                                                        val title = map["title"] as? String ?: return@launch
-                                                        val description = map["description"] as? String ?: ""
-                                                        val notes = map["notes"] as? String ?: ""
-                                                        val items = map["items"] as? List<Map<String, Any>> ?: return@launch
+                                        if (!scanned) {
+                                            for (barcode in barcodes) {
+                                                barcode.rawValue?.let { result ->
+                                                    scanned = true
+                                                    Log.d("QR SCAN", "Zeskanowano: $result")
+                                                    Toast.makeText(context, "Zeskanowano dane!", Toast.LENGTH_SHORT).show()
+                                                    scope.launch {
+                                                        try {
+                                                            val map = Gson().fromJson(result, Map::class.java)
+                                                            val title = map["title"] as? String ?: return@launch
+                                                            val description = map["description"] as? String ?: ""
+                                                            val notes = map["notes"] as? String ?: ""
+                                                            val items = map["items"] as? List<Map<String, Any>> ?: return@launch
 
-                                                        val newListId = withContext(Dispatchers.IO) {
-                                                            db.shoppingDao().insertShoppingList(
-                                                                ShoppingList(
-                                                                    title = title,
-                                                                    description = description,
-                                                                    notes = notes,
-                                                                    dateCreated = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date()),
-                                                                    timesUsed = 0
-                                                                )
-                                                            ).toInt()
-                                                        }
-
-                                                        withContext(Dispatchers.IO) {
-                                                            items.forEach { itemMap ->
-                                                                val name = itemMap["name"] as? String ?: return@forEach
-                                                                val unit = itemMap["unit"] as? String ?: ""
-                                                                val quantity = (itemMap["quantity"] as? Double)?.toFloat() ?: 1f
-
-                                                                val productId = db.shoppingDao().getAllProducts()
-                                                                    .find { it.name == name && it.unit == unit }?.id
-                                                                    ?: db.shoppingDao().insertProduct(Product(name = name, unit = unit)).toInt()
-
-                                                                db.shoppingDao().insertShoppingListItem(
-                                                                    ShoppingListItem(
-                                                                        listId = newListId,
-                                                                        productId = productId,
-                                                                        quantity = quantity
+                                                            val newListId = withContext(Dispatchers.IO) {
+                                                                db.shoppingDao().insertShoppingList(
+                                                                    ShoppingList(
+                                                                        title = title,
+                                                                        description = description,
+                                                                        notes = notes,
+                                                                        dateCreated = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date()),
+                                                                        timesUsed = 0
                                                                     )
-                                                                )
+                                                                ).toInt()
                                                             }
+
+                                                            withContext(Dispatchers.IO) {
+                                                                items.forEach { itemMap ->
+                                                                    val name = itemMap["name"] as? String ?: return@forEach
+                                                                    val unit = itemMap["unit"] as? String ?: ""
+                                                                    val quantity = (itemMap["quantity"] as? Double)?.toFloat() ?: 1f
+
+                                                                    val productId = db.shoppingDao().getAllProducts()
+                                                                        .find { it.name == name && it.unit == unit }?.id
+                                                                        ?: db.shoppingDao().insertProduct(Product(name = name, unit = unit)).toInt()
+
+                                                                    db.shoppingDao().insertShoppingListItem(
+                                                                        ShoppingListItem(
+                                                                            listId = newListId,
+                                                                            productId = productId,
+                                                                            quantity = quantity
+                                                                        )
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            onScanComplete()
+                                                        } catch (e: Exception) {
+                                                            Log.e("QR SCAN", "Błąd przetwarzania danych z QR", e)
                                                         }
-                                                    } catch (e: Exception) {
-                                                        Log.e("QR SCAN", "Błąd przetwarzania danych z QR", e)
                                                     }
                                                 }
                                             }
@@ -298,6 +305,8 @@ fun QRScannerScreen() {
                 }, ContextCompat.getMainExecutor(ctx))
                 previewView
             }, modifier = Modifier.fillMaxSize().weight(1f))
+        } else if (scanned) {
+            Text("Skanowanie zakończone. Wracanie...", style = MaterialTheme.typography.bodyMedium)
         } else {
             Text("Brak uprawnień do kamery")
         }
