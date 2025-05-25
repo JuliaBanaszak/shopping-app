@@ -118,7 +118,7 @@ abstract class ShoppingDatabase : RoomDatabase() {
                     context.applicationContext,
                     ShoppingDatabase::class.java,
                     "shopping_database"
-                )
+                ).fallbackToDestructiveMigration()
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

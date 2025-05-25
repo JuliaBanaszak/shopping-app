@@ -36,6 +36,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.example.shoppingapp.data.Product
 import com.example.shoppingapp.data.ShoppingListItem
 import com.example.shoppingapp.data.ShoppingListWithItems
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Search
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 
 class MainActivity : ComponentActivity() {
@@ -60,6 +67,7 @@ class MainActivity : ComponentActivity() {
                             listId = backStackEntry.arguments?.getInt("listId") ?: -1, // Get listId
                             db = db,
                             navController = navController
+
                         )
                     }
                 }
@@ -76,10 +84,30 @@ fun ShoppingListScreen(db: ShoppingDatabase, navController: NavHostController) {
     var lists by remember { mutableStateOf(listOf<ShoppingList>()) }
     var showDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
+    val context = LocalContext.current
     val currentDate = Calendar.getInstance().time
     val sdf = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
     val dateString = sdf.format(currentDate)
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                scope.launch {
+                    val updatedLists = withContext(Dispatchers.IO) {
+                        dao.getAllShoppingLists()
+                    }
+                    lists = updatedLists
+                }
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -95,10 +123,27 @@ fun ShoppingListScreen(db: ShoppingDatabase, navController: NavHostController) {
             TopAppBar(title = { Text("My Shopping Lists") })
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add List")
-            }
-        }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                FloatingActionButton(onClick = {
+                    // Twój przycisk QR
+                    val intent = Intent(context, QRCodeActivity::class.java)
+                    context.startActivity(intent)
+                }) {
+                    Icon(Icons.Default.Share, contentDescription = "QR Code")
+                }
+                FloatingActionButton(onClick = {
+                    val intent = Intent(context, QRCodeScannerActivity::class.java)
+                    context.startActivity(intent)
+                }) {
+                    Icon(Icons.Default.Search, contentDescription = "Scan QR")
+                }
+                FloatingActionButton(onClick = { showDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add List")
+                }
+
+            }}
     ) { paddingValues ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -280,8 +325,10 @@ fun ShoppingListDetails(
                 FloatingActionButton(onClick = { showAddItemDialog = true }) {
                     Icon(Icons.Default.Add, contentDescription = "Add Item to List")
                 }
+
             }
         }
+
     ) { padding ->
         if (shoppingListWithItems == null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -373,6 +420,7 @@ fun AddItemDialog(
                     onExpandedChange = { expanded = !expanded }
                 ) {
                     OutlinedTextField(
+                        //próbowałem pozbyć się tutaj warninga ale gdy dodaje potrzebne rzeczy to program dostaje fikołka
                         modifier = Modifier.menuAnchor().fillMaxWidth(),
                         readOnly = true,
                         value = selectedProduct?.name ?: "Select Product",
