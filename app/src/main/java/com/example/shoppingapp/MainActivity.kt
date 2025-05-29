@@ -187,7 +187,7 @@ fun MainScreenWithTabsComposable(db: ShoppingDatabase, appNavController: NavHost
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Shopping App") },
+                title = { Text("Shoppy") },
                 actions = {
                     OverflowMenu(
                         menuItems = listOf(
