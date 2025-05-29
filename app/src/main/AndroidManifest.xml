@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permissions you already had -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <application
 
+    <!-- Permissions required for the ShoppingSessionService -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!--
+        FOREGROUND_SERVICE_DATA_SYNC permission is needed if you target Android 14 (API 34) or higher
+        and your service's foregroundServiceType is "dataSync".
+        It's good practice to include it if you use this type.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+
+    <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -13,8 +26,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.ShoppingApp"
-        tools:targetApi="31"
-        >
+        tools:targetApi="31">
 
         <activity android:name=".QRCodeActivity" />
         <activity android:name=".QRCodeScannerActivity" />
@@ -26,10 +38,35 @@
             android:theme="@style/Theme.ShoppingApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 👇 ****** THIS IS WHERE YOU ADD THE SERVICE ****** 👇 -->
+        <service
+            android:name=".ShoppingSessionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <!--
+            android:name=".ShoppingSessionService"
+                - The dot (.) at the beginning means it's in your app's base package
+                  (defined by 'namespace' in your build.gradle, e.g., "com.example.shoppingapp").
+                - If ShoppingSessionService were in a sub-package like com.example.shoppingapp.services,
+                  it would be android:name=".services.ShoppingSessionService".
+
+            android:exported="false"
+                - This is important for security. It means only your app can start this service.
+                - Set to "true" only if other apps need to interact with your service directly.
+
+            android:foregroundServiceType="dataSync"
+                - Required for services that run in the foreground on Android 10 (API 29) and higher.
+                - On Android 12 (API 31) and higher, you MUST specify a foreground service type.
+                - "dataSync" is appropriate here as the service is syncing notification data with the app state.
+                - For Android 14 (API 34) and above, this attribute in the manifest is crucial if you call startForeground().
+                  You also need the corresponding <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />.
+        -->
+        <!-- 👆 ****** END OF SERVICE DECLARATION ****** 👆 -->
+
     </application>
 
 </manifest>

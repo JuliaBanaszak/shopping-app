@@ -42,8 +42,11 @@ android {
 
 dependencies {
     val roomVersion = "2.6.1"
+    implementation(libs.androidx.material.icons.core)
+    implementation(libs.androidx.material.icons.extended)
     implementation (libs.androidx.navigation.compose)
-    implementation("androidx.navigation:navigation-compose:2.7.5")
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.navigation.compose.v275)
     implementation(libs.androidx.room.runtime)
     kapt(libs.androidx.room.compiler)
     implementation(libs.androidx.room.ktx)
