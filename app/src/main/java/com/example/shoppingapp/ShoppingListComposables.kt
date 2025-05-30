@@ -521,7 +521,9 @@ fun ShoppingListDetails(
                     }
                 }
 
-                Column(modifier = Modifier.padding(top = if (list.imageUri == null) 16.dp else 0.dp).verticalScroll(rememberScrollState())) {
+                Column(modifier = Modifier
+                    .padding(top = if (list.imageUri == null) 16.dp else 0.dp)
+                    .verticalScroll(rememberScrollState())) { // Make this column scrollable
                     if (list.description.isNotBlank()) {
                         Text("Description", style = MaterialTheme.typography.titleSmall)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -548,87 +550,94 @@ fun ShoppingListDetails(
                     if (items.isEmpty()) {
                         Text("No items added yet. Click the '+' button to add items.", style = MaterialTheme.typography.bodyMedium)
                     } else {
-                        Column {
+                        Column { // This Column hosts the list of items
                             items.forEach { item ->
-                                val dismissState = rememberSwipeToDismissBoxState(
-                                    confirmValueChange = {
-                                        if (it == SwipeToDismissBoxValue.StartToEnd) {
-                                            itemToEdit = item
-                                            showItemEntryDialogForEdit = true
-                                            return@rememberSwipeToDismissBoxState false
-                                        }
-                                        true
-                                    }
-                                )
-
-                                LaunchedEffect(dismissState.currentValue) {
-                                    if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart &&
-                                        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
-                                    ) {
-                                        scope.launch {
-                                            withContext(Dispatchers.IO) {
-                                                dao.deleteShoppingListItem(item)
+                                // Wrap each item's UI in a key block
+                                key(item.id) { // <<< --- INTEGRATED KEY FIX HERE
+                                    val dismissState = rememberSwipeToDismissBoxState(
+                                        confirmValueChange = {
+                                            if (it == SwipeToDismissBoxValue.StartToEnd) { // Edit action
+                                                itemToEdit = item
+                                                showItemEntryDialogForEdit = true
+                                                return@rememberSwipeToDismissBoxState false // Don't dismiss, show dialog
                                             }
-                                            refreshListDetails()
+                                            // For EndToStart (Delete action), allow dismiss
+                                            true
                                         }
-                                    }
-                                }
-
-                                SwipeToDismissBox(
-                                    state = dismissState,
-                                    enableDismissFromStartToEnd = true,
-                                    enableDismissFromEndToStart = true,
-                                    backgroundContent = {
-                                        val direction = dismissState.targetValue
-                                        val backgroundColor = when (direction) {
-                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
-                                            else -> Color.Transparent
-                                        }
-                                        val iconColor = when (direction) {
-                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.onErrorContainer
-                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onSecondaryContainer
-                                            else -> MaterialTheme.colorScheme.onSurface
-                                        }
-                                        val alignment = when (direction) {
-                                            SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
-                                            SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
-                                            else -> Alignment.Center
-                                        }
-                                        val icon = when (direction) {
-                                            SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
-                                            SwipeToDismissBoxValue.StartToEnd -> Icons.Default.Edit
-                                            else -> null
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(backgroundColor)
-                                                .padding(horizontal = 16.dp),
-                                            contentAlignment = alignment
-                                        ) {
-                                            icon?.let {
-                                                Icon(it, contentDescription = null, tint = iconColor)
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    val product = productMap[item.productId]
-                                    ListItem(
-                                        headlineContent = { Text(product?.name ?: "Unknown Product") },
-                                        supportingContent = {
-                                            Text("Quantity: ${item.quantity} ${product?.unit ?: ""}")
-                                        },
-                                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                                     )
-                                }
+
+                                    // Added item.id to LaunchedEffect keys for robustness,
+                                    // though the key on the composable scope should be sufficient
+                                    LaunchedEffect(dismissState.currentValue, item.id) {
+                                        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart &&
+                                            dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+                                        ) {
+                                            scope.launch {
+                                                withContext(Dispatchers.IO) {
+                                                    dao.deleteShoppingListItem(item)
+                                                }
+                                                refreshListDetails()
+                                                // No explicit reset needed here, as the keyed composable and its state will be disposed.
+                                            }
+                                        }
+                                    }
+
+                                    SwipeToDismissBox(
+                                        state = dismissState,
+                                        enableDismissFromStartToEnd = true, // For Edit
+                                        enableDismissFromEndToStart = true, // For Delete
+                                        backgroundContent = {
+                                            val direction = dismissState.targetValue // Or dismissState.dismissDirection
+                                            val backgroundColor = when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.secondaryContainer
+                                                else -> Color.Transparent
+                                            }
+                                            val iconColor = when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.onErrorContainer
+                                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.onSecondaryContainer
+                                                else -> MaterialTheme.colorScheme.onSurface
+                                            }
+                                            val alignment = when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                                                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                                                else -> Alignment.Center
+                                            }
+                                            val icon = when (direction) {
+                                                SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
+                                                SwipeToDismissBoxValue.StartToEnd -> Icons.Default.Edit
+                                                else -> null
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(backgroundColor)
+                                                    .padding(horizontal = 16.dp),
+                                                contentAlignment = alignment
+                                            ) {
+                                                icon?.let {
+                                                    Icon(it, contentDescription = null, tint = iconColor)
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        val product = productMap[item.productId]
+                                        ListItem(
+                                            headlineContent = { Text(product?.name ?: "Unknown Product") },
+                                            supportingContent = {
+                                                Text("Quantity: ${item.quantity} ${product?.unit ?: ""}")
+                                            },
+                                            modifier = Modifier.background(MaterialTheme.colorScheme.surface) // Ensure content is opaque
+                                        )
+                                    }
+                                } // <<< --- END OF KEY BLOCK
                                 HorizontalDivider()
                             }
                         }
                     }
-                    Spacer(Modifier.height(80.dp))
+                    Spacer(Modifier.height(80.dp)) // Space for FABs
                 }
             }
         }

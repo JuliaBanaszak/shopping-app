@@ -740,7 +740,6 @@ fun RecipeDetailsScreen(
         )
     }
 
-
     if (showEditRecipeDialog && recipeWithIngredients != null) {
         val currentRecipe = recipeWithIngredients!!.recipe
         RecipeDetailsDialog(
